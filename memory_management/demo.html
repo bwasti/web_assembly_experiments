@@ -1,0 +1,64 @@
+<html>
+<head>
+</head>
+<body>
+<script type="module">
+
+const managed = {};
+async function memory_management_loop() {
+  while (true) {
+    const keys = Object.keys(managed);
+    for (let key of keys) {
+      const [weakref, deleter] = managed[key];
+      if (!weakref.deref()) {
+        deleter();
+        delete managed[key];
+      }
+    }
+    // cleanup every 100ms
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
+function manage(ptr, weakref, deleter) {
+  managed[ptr] = [weakref, deleter];
+}
+
+async function init() {
+  memory_management_loop();
+  const memory = new WebAssembly.Memory({initial:10, maximum:1000});
+  const { instance } = await WebAssembly.instantiateStreaming(fetch("./demo.wasm"), { env: { memory: memory } });
+  const { 
+    _MyClass__constructor,
+    _MyClass__destructor,
+    _MyClass__my_method
+  } = instance.exports;
+
+  class MyClass {
+    constructor(h) {
+      const data = _MyClass__constructor(h);
+
+      manage(data, new WeakRef(this), () => {  
+        _MyClass__destructor(data);
+      });
+
+      this.data = data;
+    }
+    my_method() {
+      return _MyClass__my_method(this.data);
+    }
+  };
+
+  for (let i = 0; i < 50; ++i) {
+    let m = new MyClass(5 + i);
+  }
+
+}
+
+init().catch(e => {
+  throw e;
+});
+</script>
+hello!
+</body>
+</html>
